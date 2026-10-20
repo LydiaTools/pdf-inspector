@@ -1833,7 +1833,13 @@ fn scan_xobjects_in_resources(
                             Err(lopdf::Error::Decompress(
                                 lopdf::DecompressError::MemoryLimitExceeded { .. },
                             )) => Vec::new(),
-                            Err(_) => stream.content.clone(),
+                            Err(_)
+                                if stream.content.len()
+                                    <= crate::extractor::content_decode::MAX_PAGE_CONTENT_BYTES =>
+                            {
+                                stream.content.clone()
+                            }
+                            Err(_) => Vec::new(),
                         };
                     // Collect raw font names from this XObject's content stream.
                     // Every form bound is counted here, invoked or not, as

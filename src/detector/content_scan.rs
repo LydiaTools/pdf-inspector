@@ -155,8 +155,14 @@ fn scan_page<'a>(
                 Ok(content) => content,
                 Err(lopdf::Error::Decompress(lopdf::DecompressError::MemoryLimitExceeded {
                     ..
-                })) => break,
-                Err(_) if stream.content.len() > bytes_left => break,
+                })) => {
+                    state.incomplete = true;
+                    break;
+                }
+                Err(_) if stream.content.len() > bytes_left => {
+                    state.incomplete = true;
+                    break;
+                }
                 Err(_) => stream.content.clone(),
             };
             bytes_left = bytes_left.saturating_sub(content.len());
