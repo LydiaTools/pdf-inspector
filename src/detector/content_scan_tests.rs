@@ -6,7 +6,7 @@ use super::super::content_mask::{
 };
 use super::super::{
     analyze_page_content, detect_from_document, page_ocr_reasons, page_ocr_signals,
-    DetectionConfig, PdfType,
+    DetectionConfig, PdfType, ScanStrategy,
 };
 use super::fixtures::*;
 use super::*;
@@ -239,6 +239,67 @@ fn covered_image_area_follows_the_matrix_and_the_page() {
     assert!(about(covered(&strips), PAGE_AREA));
     // A name bound to nothing draws nothing.
     assert!(close(covered("q 612 0 0 792 0 0 cm /Im9 Do Q"), 0.0));
+}
+
+#[test]
+fn raster_coverage_is_an_approximate_union_fraction() {
+    let (doc, page_id, _) = synthetic_page(true, false, &[]);
+    let coverage = |content: &str| {
+        executed_state(&doc, page_id, &[content])
+            .raster_coverage()
+            .expect("complete content walk")
+    };
+
+    assert!((coverage(FULL_PAGE_IMAGE) - 1.0).abs() < 0.001);
+
+    let quarter_page = "q 306 0 0 396 0 0 cm /Im0 Do Q";
+    assert!((coverage(quarter_page) - 0.25).abs() < 0.02);
+
+    let overlapping = format!("{FULL_PAGE_IMAGE}{FULL_PAGE_IMAGE}");
+    assert!((coverage(&overlapping) - 1.0).abs() < 0.001);
+
+    let incomplete = format!(
+        "{}{}",
+        "q ".repeat(SCAN_STATE_MAX_DEPTH + 1),
+        FULL_PAGE_IMAGE
+    );
+    assert!(executed_state(&doc, page_id, &[&incomplete])
+        .raster_coverage()
+        .is_none());
+}
+
+#[test]
+fn detector_returns_coverage_for_pages_it_analyzes() {
+    let (mut doc, _page_id, content_id) = synthetic_page(true, false, &[]);
+    set_page_content(&mut doc, content_id, FULL_PAGE_IMAGE);
+    let result = detect_from_document(
+        &doc,
+        1,
+        &DetectionConfig {
+            strategy: ScanStrategy::Full,
+            ..DetectionConfig::default()
+        },
+    )
+    .unwrap();
+
+    assert_eq!(result.raster_coverage_by_page.get(&1), Some(&Some(1.0)));
+
+    let incomplete = format!(
+        "{}{}",
+        "q ".repeat(SCAN_STATE_MAX_DEPTH + 1),
+        FULL_PAGE_IMAGE
+    );
+    set_page_content(&mut doc, content_id, &incomplete);
+    let result = detect_from_document(
+        &doc,
+        1,
+        &DetectionConfig {
+            strategy: ScanStrategy::Full,
+            ..DetectionConfig::default()
+        },
+    )
+    .unwrap();
+    assert_eq!(result.raster_coverage_by_page.get(&1), Some(&None));
 }
 
 #[test]
@@ -1376,7 +1437,6 @@ fn an_inline_image_s_named_colour_space_is_resolved_in_the_resources() {
 /// whose own resources answer is masked once and kept.
 #[test]
 fn a_form_taking_a_colour_space_from_its_invoker_is_masked_at_each_invocation() {
-    use lopdf::dictionary;
     // Two gray samples, or six RGB ones: read as gray, the data ends at
     // the `EI` among the bytes and the text after it is shown; read as
     // RGB, the data runs on to the `BT`, and the text is data through
