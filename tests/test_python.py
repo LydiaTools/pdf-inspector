@@ -221,7 +221,11 @@ class TestDetectPdf:
         result = pdf_inspector.detect_pdf_bytes(data)
         assert result.pdf_type == "text_based"
         assert result.markdown is None
-        assert result.raster_coverage_by_page
+        assert set(result.raster_coverage_by_page) == {1, 2, 3}
+        assert all(
+            value is None or 0.0 <= value <= 1.0
+            for value in result.raster_coverage_by_page.values()
+        )
 
 
 # ---------------------------------------------------------------------------

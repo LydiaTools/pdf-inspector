@@ -342,6 +342,14 @@ pub(crate) fn detect_from_document(
         }
     }
 
+    // Snapshot only pages analyzed by the configured strategy. Later phases
+    // may inspect additional pages to build OCR reasons, but those pages are
+    // not part of the caller's selected coverage sample.
+    let raster_coverage_by_page: BTreeMap<u32, Option<f32>> = analysis_cache
+        .iter()
+        .map(|(&page, analysis)| (page, analysis.raster_coverage))
+        .collect();
+
     let pages_sampled = pages_actually_sampled;
     let text_ratio = if pages_sampled > 0 {
         pages_with_text as f32 / pages_sampled as f32
@@ -513,13 +521,6 @@ pub(crate) fn detect_from_document(
     pages_needing_ocr.sort();
     pages_needing_ocr.dedup();
 
-    // Preserve which pages the configured strategy actually analyzed.
-    // `None` means the content walk hit a safety budget, not zero coverage.
-    let mut raster_coverage_by_page: BTreeMap<u32, Option<f32>> = analysis_cache
-        .iter()
-        .map(|(&page, analysis)| (page, analysis.raster_coverage))
-        .collect();
-
     // Explain each OCR-flagged page. Pages we analyzed get a signal-derived
     // reason. Pages flagged only by whole-document classification — the
     // pages a sample left out of a Scanned/ImageBased document — are still
@@ -535,7 +536,6 @@ pub(crate) fn detect_from_document(
             None => match pages.get(&page_num) {
                 Some(&page_id) => {
                     let executed = content_scan::page_executed_content(doc, page_id);
-                    raster_coverage_by_page.insert(page_num, executed.raster_coverage);
                     if executed.form_bytes_exceeded {
                         pages_past_form_budget += 1;
                         log::debug!(
@@ -651,7 +651,7 @@ struct PageAnalysis {
     /// count.
     has_covering_image: bool,
     /// Approximate fraction of the visible page covered by drawn images.
-    /// `None` when content traversal was incomplete or the page box is invalid.
+    /// `None` when content traversal was incomplete.
     raster_coverage: Option<f32>,
     /// Whether every text-showing operator the page executes is invisible
     /// while images cover the page: a scan carrying a text layer nobody

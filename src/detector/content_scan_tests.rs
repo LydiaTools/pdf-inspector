@@ -281,7 +281,6 @@ fn detector_returns_coverage_for_pages_it_analyzes() {
         },
     )
     .unwrap();
-
     assert_eq!(result.raster_coverage_by_page.get(&1), Some(&Some(1.0)));
 
     let incomplete = format!(
@@ -300,6 +299,60 @@ fn detector_returns_coverage_for_pages_it_analyzes() {
     )
     .unwrap();
     assert_eq!(result.raster_coverage_by_page.get(&1), Some(&None));
+}
+
+#[test]
+fn raster_coverage_only_includes_pages_selected_by_the_scan_strategy() {
+    let (mut doc, page_one_id, page_one_content_id) = synthetic_page(false, true, &[]);
+    let full_page_image = "q 612 0 0 792 0 0 cm /ImBig Do Q";
+    set_page_content(&mut doc, page_one_content_id, full_page_image);
+
+    let catalog_id = doc
+        .trailer
+        .get(b"Root")
+        .unwrap()
+        .as_reference()
+        .unwrap()
+        .to_owned();
+    let pages_id = doc
+        .get_dictionary(catalog_id)
+        .unwrap()
+        .get(b"Pages")
+        .unwrap()
+        .as_reference()
+        .unwrap()
+        .to_owned();
+    let mut page_two = doc.get_dictionary(page_one_id).unwrap().clone();
+    let page_two_content_id = doc.add_object(Object::Stream(lopdf::Stream::new(
+        lopdf::dictionary! {},
+        full_page_image.as_bytes().to_vec(),
+    )));
+    page_two.set("Contents", Object::Reference(page_two_content_id));
+    let page_two_id = doc.add_object(Object::Dictionary(page_two));
+    let pages = doc.get_dictionary_mut(pages_id).unwrap();
+    let mut kids = pages.get(b"Kids").unwrap().as_array().unwrap().clone();
+    kids.push(Object::Reference(page_two_id));
+    pages.set("Kids", kids.clone());
+    pages.set("Count", Object::Integer(kids.len() as i64));
+
+    let scanned = detect_from_document(
+        &doc,
+        2,
+        &DetectionConfig {
+            strategy: ScanStrategy::Pages(vec![2]),
+            ..DetectionConfig::default()
+        },
+    )
+    .unwrap();
+    assert_eq!(scanned.pdf_type, PdfType::Scanned);
+    assert_eq!(
+        scanned
+            .raster_coverage_by_page
+            .keys()
+            .copied()
+            .collect::<Vec<_>>(),
+        vec![2]
+    );
 }
 
 #[test]
